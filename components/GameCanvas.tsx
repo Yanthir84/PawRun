@@ -20,6 +20,12 @@ const JUMP_FORCE = 0.5;
 const LANE_CHANGE_SPEED = 0.2;
 const FOG_COLOR = 0x87CEEB; 
 const RENDER_DISTANCE = 180;
+const CHUNK_LENGTH = 20;
+
+interface FloorChunk {
+    mesh: THREE.Group;
+    zStart: number;
+}
 
 const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreUpdate }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -37,6 +43,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
   const playerLaneRef = useRef<Lane>(Lane.CENTER);
   const currentLaneXRef = useRef(0);
   const playerVelocityYRef = useRef(0);
+  const playerJumpYRef = useRef(0); // Vertical offset from jump
+  
   const isJumpingRef = useRef(false);
   const isSlidingRef = useRef(false);
   const slideTimerRef = useRef(0);
@@ -47,7 +55,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
   const obstaclesRef = useRef<THREE.Group[]>([]);
   const coinsRef = useRef<THREE.Group[]>([]);
   const sceneryRef = useRef<THREE.Group[]>([]);
-  const floorChunksRef = useRef<THREE.Group[]>([]);
+  const floorChunksRef = useRef<FloorChunk[]>([]);
 
   // Material Refs (initialized in useEffect)
   const materialsRef = useRef<any>(null);
@@ -189,6 +197,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
         treeLeaves: new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 1.0 }),
         glow: new THREE.MeshBasicMaterial({ color: 0xffff00, transparent: true, opacity: 0.4 }),
         red: new THREE.MeshStandardMaterial({ color: 0xcc0000, roughness: 0.4 }),
+        concrete: new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.9 }),
       };
       return materialsRef.current;
   };
@@ -201,35 +210,31 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     chaseGroup.add(bodyGroup);
 
     // Resolution constants
-    const HI_RES = 64;
-    const MID_RES = 32;
+    const HI_RES = 32;
+    const MID_RES = 16;
 
     // --- Body (Capsule) ---
-    // Using CapsuleGeometry for smooth organic shape
-    const torsoGeo = new THREE.CapsuleGeometry(0.4, 0.7, 8, HI_RES);
+    const torsoGeo = new THREE.CapsuleGeometry(0.4, 0.7, 4, HI_RES);
     const torso = new THREE.Mesh(torsoGeo, mats.uniformBlue);
     torso.position.y = 1.0;
     torso.castShadow = true;
     bodyGroup.add(torso);
 
-    // Vest / Harness (Slightly larger capsule shell)
     const vestGeo = new THREE.CapsuleGeometry(0.42, 0.3, 4, HI_RES);
     const vest = new THREE.Mesh(vestGeo, mats.uniformBlue);
     vest.position.set(0, 1.2, 0);
     bodyGroup.add(vest);
     
-    // Collar (Torus)
     const collarGeo = new THREE.TorusGeometry(0.38, 0.08, 16, HI_RES);
     const collar = new THREE.Mesh(collarGeo, mats.black);
     collar.rotation.x = Math.PI / 2;
     collar.position.set(0, 1.55, 0);
     bodyGroup.add(collar);
     
-    // Badge (Detailed Cylinder plate)
     const tagGeo = new THREE.CylinderGeometry(0.18, 0.15, 0.05, MID_RES);
     const tag = new THREE.Mesh(tagGeo, mats.badge);
     tag.rotation.x = Math.PI / 2;
-    tag.rotation.y = Math.PI; // Face forward properly
+    tag.rotation.y = Math.PI; 
     tag.rotation.z = Math.PI;
     tag.position.set(0, 1.35, 0.45);
     bodyGroup.add(tag);
@@ -239,26 +244,22 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     headGroup.position.set(0, 1.85, 0.1);
     bodyGroup.add(headGroup);
 
-    // Main Head Sphere
     const headGeo = new THREE.SphereGeometry(0.48, HI_RES, HI_RES);
     const head = new THREE.Mesh(headGeo, mats.furDark);
     headGroup.add(head);
 
-    // Snout (Rounded Cylinder merging into face)
     const snoutGeo = new THREE.CapsuleGeometry(0.22, 0.25, 4, MID_RES);
     const snout = new THREE.Mesh(snoutGeo, mats.furLight);
     snout.rotation.x = Math.PI / 2;
     snout.position.set(0, -0.15, 0.45);
     headGroup.add(snout);
 
-    // Nose
     const noseGeo = new THREE.SphereGeometry(0.1, MID_RES, MID_RES);
     const nose = new THREE.Mesh(noseGeo, mats.black);
     nose.scale.set(1.2, 0.8, 1);
     nose.position.set(0, 0, 0.25);
     snout.add(nose);
 
-    // Eyes (Detailed spheres)
     const eyeWhiteGeo = new THREE.SphereGeometry(0.14, MID_RES, MID_RES);
     const pupilGeo = new THREE.SphereGeometry(0.08, MID_RES, MID_RES);
     
@@ -268,10 +269,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     headGroup.add(leftEyeGroup);
 
     const eyeL = new THREE.Mesh(eyeWhiteGeo, mats.white);
-    eyeL.scale.set(1, 1, 0.4); // Flatten slightly
+    eyeL.scale.set(1, 1, 0.4); 
     leftEyeGroup.add(eyeL);
     
-    const irisL = new THREE.Mesh(pupilGeo, mats.furDark); // Brown eyes
+    const irisL = new THREE.Mesh(pupilGeo, mats.furDark);
     irisL.position.z = 0.1;
     irisL.scale.z = 0.5;
     leftEyeGroup.add(irisL);
@@ -300,7 +301,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     pupilR.scale.set(0.5, 0.5, 0.5);
     rightEyeGroup.add(pupilR);
 
-    // Ears (Rounded Cones/Capsules distorted)
     const earGeo = new THREE.ConeGeometry(0.18, 0.5, MID_RES);
     
     const earL = new THREE.Mesh(earGeo, mats.furDark);
@@ -308,7 +308,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     earL.rotation.z = 0.4;
     earL.rotation.x = -0.2;
     headGroup.add(earL);
-    // Inner ear color
     const earInnerL = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.35, MID_RES), mats.furLight);
     earInnerL.position.set(0, -0.05, 0.1);
     earL.add(earInnerL);
@@ -322,14 +321,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     earInnerR.position.set(0, -0.05, 0.1);
     earR.add(earInnerR);
 
-    // Police Cap (High Poly)
     const hatGroup = new THREE.Group();
     hatGroup.position.set(0, 0.45, 0);
     hatGroup.rotation.x = -0.1;
     headGroup.add(hatGroup);
 
     const hatBandGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.15, HI_RES);
-    const hatBand = new THREE.Mesh(hatBandGeo, mats.black); // Black band
+    const hatBand = new THREE.Mesh(hatBandGeo, mats.black);
     hatGroup.add(hatBand);
 
     const hatTopGeo = new THREE.CylinderGeometry(0.45, 0.42, 0.25, HI_RES);
@@ -337,33 +335,26 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     hatTop.position.y = 0.2;
     hatGroup.add(hatTop);
 
-    // Visor (Part of a sphere or flattened cylinder)
     const visorGeo = new THREE.CylinderGeometry(0.44, 0.44, 0.05, HI_RES, 1, false, 0, Math.PI);
     const visor = new THREE.Mesh(visorGeo, mats.black);
-    visor.scale.set(1, 1, 1.5); // Extend forward
+    visor.scale.set(1, 1, 1.5);
     visor.rotation.x = 0.3;
     visor.position.set(0, 0, 0.2);
     hatGroup.add(visor);
     
-    // Hat Badge
     const hatBadge = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16), mats.badge);
     hatBadge.position.set(0, 0.2, 0.43);
     hatBadge.scale.z = 0.5;
     hatGroup.add(hatBadge);
 
-    // --- Backpack (Pup Pack) - High Detail ---
     const packGroup = new THREE.Group();
     packGroup.position.set(0, 1.2, -0.35);
     bodyGroup.add(packGroup);
 
-    const packMainGeo = new THREE.BoxGeometry(0.6, 0.6, 0.4);
-    // Bevel/Subdivision modifier simulation via scaling or specific geometry?
-    // Let's use a scaled sphere for a "soft" backpack look + boxes
     const packMain = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 0.5, 4, 16), mats.uniformBlue);
     packMain.rotation.z = Math.PI / 2;
     packGroup.add(packMain);
 
-    // Side Pockets
     const pocketGeo = new THREE.CapsuleGeometry(0.15, 0.3, 4, 16);
     const pocketL = new THREE.Mesh(pocketGeo, mats.uniformBlue);
     pocketL.rotation.x = Math.PI / 2;
@@ -375,7 +366,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     pocketR.position.set(0.35, 0, 0.1);
     packGroup.add(pocketR);
 
-    // Gadgets (Megaphone / Net Launcher)
     const gadgetGeo = new THREE.CylinderGeometry(0.08, 0.12, 0.4, MID_RES);
     const gadgetL = new THREE.Mesh(gadgetGeo, mats.metal);
     gadgetL.rotation.x = Math.PI / 3;
@@ -387,7 +377,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     gadgetR.position.set(0.25, 0.3, 0.2);
     packGroup.add(gadgetR);
 
-    // --- Legs (Articulated Capsules) ---
     const legGeo = new THREE.CapsuleGeometry(0.11, 0.5, 4, 16);
     const positions = [
       { x: -0.22, z: 0.25, name: 'legFL' },
@@ -401,17 +390,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
       legGroup.position.set(pos.x, 0.6, pos.z);
       legGroup.name = pos.name;
 
-      // Thigh (Sphere)
       const thigh = new THREE.Mesh(new THREE.SphereGeometry(0.18, MID_RES, MID_RES), mats.furDark);
       thigh.position.y = 0.15;
       legGroup.add(thigh);
 
-      // Shin (Capsule)
       const leg = new THREE.Mesh(legGeo, mats.furLight);
       leg.position.y = -0.15;
       legGroup.add(leg);
 
-      // Paw (Rounded Box via scaled Sphere)
       const paw = new THREE.Mesh(new THREE.SphereGeometry(0.14, MID_RES, MID_RES), mats.furLight);
       paw.scale.set(1.1, 0.8, 1.3);
       paw.position.set(0, -0.5, 0.08);
@@ -420,7 +406,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
       bodyGroup.add(legGroup);
     });
 
-    // Tail
     const tailGeo = new THREE.CapsuleGeometry(0.08, 0.6, 4, 16);
     const tail = new THREE.Mesh(tailGeo, mats.furDark);
     tail.rotation.x = 2.0;
@@ -444,7 +429,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
         emissiveIntensity: 0.2
     });
 
-    // High poly bone
     const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.8, 32), boneMat);
     stick.rotation.z = Math.PI / 2;
     
@@ -456,7 +440,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
 
     group.add(stick, leftBulb, rightBulb);
 
-    // Glow Halo
     const glowGeo = new THREE.RingGeometry(0.6, 0.8, 32);
     const glow = new THREE.Mesh(glowGeo, mats.glow);
     glow.name = 'glow';
@@ -470,8 +453,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     const mats = getMaterials();
     const group = new THREE.Group();
     
-    // Smooth Body using merged geometries or just cleaner boxes with bevel segments?
-    // ThreeJS box doesn't bevel easily without modifiers. Stick to boxes but add details.
     const bodyGeo = new THREE.BoxGeometry(2.4, 1.0, 4.5);
     const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.2, metalness: 0.6 });
     const body = new THREE.Mesh(bodyGeo, bodyMat);
@@ -484,7 +465,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     cabin.position.set(0, 1.5, -0.2);
     group.add(cabin);
 
-    // High poly wheels
     const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 32);
     const wheelMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
     const hubGeo = new THREE.CylinderGeometry(0.2, 0.2, 0.31, 16);
@@ -504,7 +484,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
       group.add(wGroup);
     });
 
-    // Lights
     const lightGeo = new THREE.CapsuleGeometry(0.15, 0.2, 4, 8);
     const headLight = new THREE.Mesh(lightGeo, new THREE.MeshBasicMaterial({color: 0xffffcc}));
     headLight.rotation.x = Math.PI / 2;
@@ -608,38 +587,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     return group;
   };
 
-  const createHydrant = (): THREE.Group => {
-    const mats = getMaterials();
-    const group = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 0.8, 16), mats.red);
-    body.position.y = 0.4;
-    
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 16), mats.red);
-    cap.position.y = 0.8;
-    
-    group.add(body, cap);
-    return group;
-  };
-
-  const createLamp = (): THREE.Group => {
-    const mats = getMaterials();
-    const group = new THREE.Group();
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.15, 6, 12), mats.metal);
-    pole.position.y = 3;
-    
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.1, 0.1), mats.metal);
-    arm.position.set(0.5, 5.8, 0);
-    
-    const bulbBox = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.3), mats.metal);
-    bulbBox.position.set(1.2, 5.7, 0);
-    
-    const bulb = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.05, 0.3, 8), new THREE.MeshBasicMaterial({color: 0xffffaa}));
-    bulb.position.set(1.2, 5.5, 0);
-    
-    group.add(pole, arm, bulbBox, bulb);
-    return group;
-  };
-
   const createBuilding = (height: number): THREE.Mesh => {
     const geo = new THREE.BoxGeometry(12, height, 12);
     
@@ -711,7 +658,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     dirLight.castShadow = true;
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
-    // Optimize shadow cam
     dirLight.shadow.camera.near = 0.5;
     dirLight.shadow.camera.far = 150;
     dirLight.shadow.camera.left = -40;
@@ -728,7 +674,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
 
     // Initial Ground
     for(let i=0; i<8; i++) {
-        spawnFloorChunk(-i * 20);
+        spawnFloorChunk(-i * CHUNK_LENGTH);
     }
     lastSpawnZRef.current = -140;
 
@@ -780,6 +726,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     playerLaneRef.current = Lane.CENTER;
     currentLaneXRef.current = 0;
     playerVelocityYRef.current = 0;
+    playerJumpYRef.current = 0;
     isJumpingRef.current = false;
     isSlidingRef.current = false;
     
@@ -787,7 +734,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
       obstaclesRef.current.forEach(o => sceneRef.current?.remove(o));
       coinsRef.current.forEach(c => sceneRef.current?.remove(c));
       sceneryRef.current.forEach(s => sceneRef.current?.remove(s));
-      floorChunksRef.current.forEach(f => sceneRef.current?.remove(f));
+      floorChunksRef.current.forEach(f => sceneRef.current?.remove(f.mesh));
       
       obstaclesRef.current = [];
       coinsRef.current = [];
@@ -795,7 +742,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
       floorChunksRef.current = [];
       
       for(let i=0; i<8; i++) {
-        spawnFloorChunk(-i * 20);
+        spawnFloorChunk(-i * CHUNK_LENGTH);
       }
       lastSpawnZRef.current = -140;
     }
@@ -840,69 +787,56 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
     
     const chunkGroup = new THREE.Group();
 
-    // Road
-    const roadGeo = new THREE.PlaneGeometry(14, 20);
-    const road = new THREE.Mesh(roadGeo, mats.road);
-    road.rotation.x = -Math.PI / 2;
-    road.position.set(0, 0, zPos - 10);
-    road.receiveShadow = true;
-    chunkGroup.add(road);
-
-    // Sidewalks
-    const walkGeo = new THREE.BoxGeometry(6, 0.4, 20);
-    
-    const leftWalk = new THREE.Mesh(walkGeo, mats.sidewalk);
-    leftWalk.position.set(-10, 0.2, zPos - 10);
-    leftWalk.receiveShadow = true;
-    chunkGroup.add(leftWalk);
-
-    const rightWalk = new THREE.Mesh(walkGeo, mats.sidewalk);
-    rightWalk.position.set(10, 0.2, zPos - 10);
-    rightWalk.receiveShadow = true;
-    chunkGroup.add(rightWalk);
-    
-    // Grass
-    const grassGeo = new THREE.BoxGeometry(40, 0.1, 20);
+    // Scenery Base
+    const grassGeo = new THREE.BoxGeometry(40, 0.1, CHUNK_LENGTH);
     const grassL = new THREE.Mesh(grassGeo, mats.grass);
-    grassL.position.set(-33, 0, zPos - 10);
+    grassL.position.set(-33, -0.1, zPos - CHUNK_LENGTH/2);
     chunkGroup.add(grassL);
-    
     const grassR = new THREE.Mesh(grassGeo, mats.grass);
-    grassR.position.set(33, 0, zPos - 10);
+    grassR.position.set(33, -0.1, zPos - CHUNK_LENGTH/2);
     chunkGroup.add(grassR);
 
-    // Lane Markings
-    const lineGeo = new THREE.PlaneGeometry(0.25, 3);
-    [-2, 2].forEach(x => {
-      for(let i=0; i<4; i++) {
-        const line = new THREE.Mesh(lineGeo, mats.white);
-        line.rotation.x = -Math.PI / 2;
-        line.position.set(x, 0.02, zPos - 2.5 - (i * 5));
-        chunkGroup.add(line);
-      }
-    });
-
-    // Decorations
-    [-10, 10].forEach(sideX => {
-        if (Math.random() > 0.5) {
+    // Buildings & Trees on side
+    [-15, 15].forEach(sideX => {
+        if (Math.random() > 0.6) {
             const tree = createTree();
-            tree.position.set(sideX + (Math.random()*2 - 1), 0, zPos - Math.random() * 20);
+            tree.position.set(sideX + (Math.random()*4 - 2), 0, zPos - Math.random() * CHUNK_LENGTH);
             tree.scale.setScalar(0.8 + Math.random() * 0.4);
             chunkGroup.add(tree);
         }
-        if (Math.random() > 0.8) {
-            const prop = Math.random() > 0.5 ? createHydrant() : createLamp();
-            const offset = sideX < 0 ? 2 : -2; 
-            prop.position.set(sideX + offset, 0.2, zPos - Math.random() * 20);
-            if (prop.children.length > 3) { // Lamp check hack
-                 prop.rotation.y = sideX < 0 ? Math.PI/2 : -Math.PI/2;
-            }
-            chunkGroup.add(prop);
+    });
+
+    // Road
+    const roadGeo = new THREE.PlaneGeometry(14, CHUNK_LENGTH);
+    const road = new THREE.Mesh(roadGeo, mats.road);
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(0, 0, zPos - CHUNK_LENGTH/2);
+    road.receiveShadow = true;
+    chunkGroup.add(road);
+    
+    const walkGeo = new THREE.BoxGeometry(6, 0.4, CHUNK_LENGTH);
+    const leftWalk = new THREE.Mesh(walkGeo, mats.sidewalk);
+    leftWalk.position.set(-10, 0.2, zPos - CHUNK_LENGTH/2);
+    leftWalk.receiveShadow = true;
+    chunkGroup.add(leftWalk);
+    const rightWalk = new THREE.Mesh(walkGeo, mats.sidewalk);
+    rightWalk.position.set(10, 0.2, zPos - CHUNK_LENGTH/2);
+    rightWalk.receiveShadow = true;
+    chunkGroup.add(rightWalk);
+
+    // Lane lines
+    const lineGeo = new THREE.PlaneGeometry(0.25, 3);
+    [-2, 2].forEach(x => {
+        for(let i=0; i<4; i++) {
+            const line = new THREE.Mesh(lineGeo, mats.white);
+            line.rotation.x = -Math.PI / 2;
+            line.position.set(x, 0.02, zPos - 2.5 - (i * 5));
+            chunkGroup.add(line);
         }
     });
 
     sceneRef.current.add(chunkGroup);
-    floorChunksRef.current.push(chunkGroup);
+    floorChunksRef.current.push({ mesh: chunkGroup, zStart: zPos });
   };
 
   const spawnObstacles = (zPos: number) => {
@@ -921,23 +855,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
         
         if (typeRoll < 0.25) {
           entity = createBone();
-          entity.position.set(xPos, 1.2, zPos);
+          entity.position.set(xPos, 1.2, zPos - Math.random() * 10 - 5);
           coinsRef.current.push(entity);
         } else if (typeRoll < 0.6) {
           const colors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xffffff, 0x111111];
           const carColor = colors[Math.floor(Math.random() * colors.length)];
           entity = createCar(carColor);
-          entity.position.set(xPos, 0, zPos);
+          entity.position.set(xPos, 0, zPos - Math.random() * 10 - 5);
           entity.rotation.y = 0; 
           obstaclesRef.current.push(entity);
         } else {
-          if (Math.random() > 0.5) {
-              entity = createBus();
-              entity.position.set(xPos, 0, zPos);
-          } else {
-              entity = createBridge();
-              entity.position.set(xPos, 0, zPos);
-          }
+            if (Math.random() > 0.5) {
+                entity = createBus();
+                entity.position.set(xPos, 0, zPos - Math.random() * 10 - 5);
+            } else {
+                entity = createBridge();
+                entity.position.set(xPos, 0, zPos - Math.random() * 10 - 5);
+            }
           obstaclesRef.current.push(entity);
         }
         
@@ -945,19 +879,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
       }
     }
 
+    // Scenery building only on ground level sides
     if (Math.random() > 0.1) {
       const h = 20 + Math.random() * 30;
       const bLeft = createBuilding(h);
       bLeft.position.set(-22, h/2, zPos - 10);
       sceneRef.current?.add(bLeft);
       sceneryRef.current.push(bLeft);
-    }
-    if (Math.random() > 0.1) {
-      const h = 20 + Math.random() * 30;
-      const bRight = createBuilding(h);
-      bRight.position.set(22, h/2, zPos - 10);
-      sceneRef.current?.add(bRight);
-      sceneryRef.current.push(bRight);
     }
   };
 
@@ -971,31 +899,38 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
       if (gameActiveRef.current) {
         if(speedRef.current < MAX_SPEED) speedRef.current += 0.00005;
 
+        // Move Player Z
         player.position.z -= speedRef.current;
         
+        // Lane Logic
         const targetX = (playerLaneRef.current - 1) * LANE_WIDTH;
         currentLaneXRef.current += (targetX - currentLaneXRef.current) * LANE_CHANGE_SPEED;
         player.position.x = currentLaneXRef.current;
         player.rotation.z = (targetX - currentLaneXRef.current) * 0.1;
+        player.rotation.x = 0;
 
+        // Jump Physics
         if (isJumpingRef.current) {
-          player.position.y += playerVelocityYRef.current;
+          playerJumpYRef.current += playerVelocityYRef.current;
           playerVelocityYRef.current -= GRAVITY;
           
-          if (player.position.y <= 0) {
-            player.position.y = 0;
+          if (playerJumpYRef.current <= 0) {
+            playerJumpYRef.current = 0;
             isJumpingRef.current = false;
             playerVelocityYRef.current = 0;
           }
         }
+        
+        // Final Y Position (Always relative to 0 ground)
+        player.position.y = playerJumpYRef.current;
 
+        // Sliding Animation
         const bodyGroup = player.children[0];
         if (isSlidingRef.current) {
             slideTimerRef.current--;
             if (bodyGroup) {
-                // Better sliding deformation for capsule body
                 bodyGroup.scale.set(1.2, 0.5, 1.2);
-                bodyGroup.position.y = 0.4; 
+                bodyGroup.position.y = 0.4;
             }
             if (slideTimerRef.current <= 0) {
                 isSlidingRef.current = false;
@@ -1006,10 +941,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
             }
         }
 
+        // Run Animation
         if (!isJumpingRef.current && !isSlidingRef.current) {
              const time = Date.now() * 0.015;
              if (bodyGroup) {
-                 bodyGroup.position.y = Math.abs(Math.sin(time * 1.5)) * 0.15;
+                 bodyGroup.position.y = Math.abs(Math.sin(time * 1.5)) * 0.15; // Bounce
                  
                  bodyGroup.children.forEach(child => {
                      if (child.name.startsWith('leg')) {
@@ -1033,37 +969,42 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
              }
         }
 
+        // Camera Follow
         const targetCamZ = player.position.z + 12;
-        const targetCamY = 5 + (player.position.y * 0.4);
+        const targetCamY = 5 + player.position.y + (playerJumpYRef.current * 0.4);
         const targetCamX = player.position.x * 0.6;
         
         cameraRef.current.position.x += (targetCamX - cameraRef.current.position.x) * 0.1;
         cameraRef.current.position.y += (targetCamY - cameraRef.current.position.y) * 0.1;
         cameraRef.current.position.z += (targetCamZ - cameraRef.current.position.z) * 0.2;
-        cameraRef.current.lookAt(player.position.x * 0.3, 1.5, player.position.z - 10);
+        cameraRef.current.lookAt(player.position.x * 0.3, player.position.y + 1.5, player.position.z - 10);
 
+        // Cleanup
         const cullZ = player.position.z + 20; 
         
-        floorChunksRef.current = floorChunksRef.current.filter(mesh => {
-            if (mesh.children[0].position.z > cullZ) {
-                sceneRef.current?.remove(mesh);
+        floorChunksRef.current = floorChunksRef.current.filter(chunk => {
+            if (chunk.mesh.children[0].position.z > cullZ) { // Rough check
+                sceneRef.current?.remove(chunk.mesh);
                 return false;
             }
             return true;
         });
 
-        const nextSpawnZ = Math.floor(player.position.z / 20) * 20 - 120;
+        // Spawning Logic
+        const nextSpawnZ = Math.floor(player.position.z / CHUNK_LENGTH) * CHUNK_LENGTH - 120;
         if (lastSpawnZRef.current > nextSpawnZ) {
-             const z = lastSpawnZRef.current - 20;
+             const z = lastSpawnZRef.current - CHUNK_LENGTH;
              spawnFloorChunk(z);
              spawnObstacles(z);
              lastSpawnZRef.current = z;
         }
 
+        // Collision Logic
         const playerBox = new THREE.Box3().setFromObject(player);
+        // Shrink hitbox slightly
         playerBox.min.x += 0.3; playerBox.max.x -= 0.3;
         playerBox.min.z += 0.4; playerBox.max.z -= 0.4;
-        playerBox.min.y += 0.2; 
+        playerBox.min.y += 0.2; playerBox.max.y -= 0.2;
 
         coinsRef.current = coinsRef.current.filter(c => {
             c.rotation.y += 0.05;
@@ -1091,20 +1032,26 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
         obstaclesRef.current.forEach(o => {
             const box = new THREE.Box3().setFromObject(o);
             box.min.x += 0.2; box.max.x -= 0.2;
+            box.min.z += 0.2; box.max.z -= 0.2;
             
             if (box.intersectsBox(playerBox)) {
                 const type = o.userData.type;
                 let hit = true;
                 
+                // Height check relative to object position
+                // Calculate local player height relative to object base
+                const relativePlayerY = player.position.y - o.position.y;
+
                 if (type === EntityType.OBSTACLE_LOW) {
-                    if (isJumpingRef.current && player.position.y > 1.2) hit = false;
+                    if (relativePlayerY > 1.2) hit = false;
                 }
                 if (type === EntityType.OBSTACLE_HIGH) {
-                    if (isSlidingRef.current) hit = false;
+                    if (isSlidingRef.current && relativePlayerY < 1.0) hit = false;
                 }
                 
                 if (hit) {
                     audioManager.playCrash();
+                    audioManager.playWhine(); // Plays dog whine
                     onGameOver(scoreRef.current);
                     gameActiveRef.current = false;
                 }
@@ -1115,6 +1062,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ gameState, onGameOver, onScoreU
         sceneryRef.current = sceneryRef.current.filter(o => o.position.z <= cullZ ? true : (sceneRef.current?.remove(o), false));
 
       } else {
+         // Menu rotation
          if (player) {
              const time = Date.now() * 0.002;
              player.rotation.y = Math.PI + Math.sin(time) * 0.2;

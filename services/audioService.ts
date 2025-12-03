@@ -167,6 +167,46 @@ export class AudioService {
     osc.start();
     osc.stop(t + 0.5);
   }
+
+  public playWhine() {
+    this.init();
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+
+    // Dog whine simulation: Sine wave with vibrato falling in pitch
+    const osc = this.ctx.createOscillator();
+    const vibrato = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    const vibratoGain = this.ctx.createGain();
+
+    osc.type = 'sine';
+    vibrato.type = 'sine';
+    vibrato.frequency.value = 8; // Tremolo speed
+
+    // Pitch drop: High whine to lower
+    osc.frequency.setValueAtTime(900, t);
+    osc.frequency.exponentialRampToValueAtTime(400, t + 0.6);
+
+    // Vibrato depth
+    vibratoGain.gain.value = 20; 
+    
+    // Connect vibrato to frequency of main osc
+    vibrato.connect(vibratoGain);
+    vibratoGain.connect(osc.frequency);
+
+    // Envelope
+    gain.gain.setValueAtTime(0, t);
+    gain.gain.linearRampToValueAtTime(0.2, t + 0.1);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+
+    osc.start(t);
+    vibrato.start(t);
+    osc.stop(t + 0.8);
+    vibrato.stop(t + 0.8);
+  }
 }
 
 export const audioManager = new AudioService();
